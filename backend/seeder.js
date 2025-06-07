@@ -15,4 +15,4 @@ async function seedAdmin() {
   } else console.log('Admin already exists');
   process.exit();
 }
-seedAdmin();
+seedAdmin(); 
