@@ -23,7 +23,7 @@ function Login() {
       <header className="fixed top-0 left-0 right-0 p-4 flex justify-between items-left z-50">
         <div className="flex items-center space-x-4">
           <img src="/logobemfstuui.png" alt="Logo" className="w-10 h-10" />
-          <h1 className="text-xl font-bold text-teal-300">Sistem Informasi BEM FST UUI</h1>
+          <h1 className="text-xl font-bold text-teal-300">Data Surat dan BEM FST UUI</h1>
         </div>
       </header>
       <form onSubmit={handleSubmit} className="bg-white bg-opacity-10 p-8 rounded-3xl shadow-lg w-full max-w-sm backdrop-blur-sm">

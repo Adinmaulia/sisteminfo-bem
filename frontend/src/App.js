@@ -13,7 +13,7 @@ function AppContent() {
                 <div className="flex items-center space-x-4">
                     <img src="/logouui.png" alt="Logo" className="w-10 h-10" />
                     <img src="/logobemfstuui.png" alt="Logo" className="w-10 h-10" />
-                    <h1 className="text-xl font-bold font-roboto">Sistem Informasi BEM FST UUI</h1>
+                    <h1 className="text-xl font-bold font-roboto">Data Surat dan BEM FST UUI</h1>
                 </div>
                 <div className="flex items-center space-x-4">
                     <span className="text-white">Halo {user.username || 'User'}</span>
