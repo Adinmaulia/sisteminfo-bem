@@ -10,19 +10,22 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 export default function CrudDokumen() {
   const { user } = useContext(AuthContext);
   const [docs, setDocs] = useState([]);
-  const [files, setFiles] = useState({});
-  const [previewNames, setPreviewNames] = useState({});
+  const [file, setFile] = useState(null);
+  const [nomorSurat, setNomorSurat] = useState('');
+  const [jenisDokumen, setJenisDokumen] = useState('suratMasuk');
+  const [previewName, setPreviewName] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState('suratMasuk');
 
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [modalDoc, setModalDoc] = useState({ id: null, field: '', name: '' });
+  const [modalDoc, setModalDoc] = useState({ id: null, name: '' });
 
   // Fuse.js search setup
   const { query, setQuery, results } = useFuseSearch(docs, {
-    keys: ['suratMasukName', 'suratKeluarName', 'lpjKegiatanName'],
+    keys: ['fileName', 'nomorSurat', 'jenisDokumen'],
     threshold: 0.3,
   });
 
@@ -37,51 +40,74 @@ export default function CrudDokumen() {
 
   useEffect(() => { fetchDocs(); }, []);
 
-  // Setup three dropzones
-  const dropMasuk = useDropzone({ accept: 'application/pdf', onDrop: acc => { setFiles(f => ({ ...f, suratMasuk: acc[0] })); setPreviewNames(n => ({ ...n, suratMasuk: acc[0].name })); } });
-  const dropKeluar = useDropzone({ accept: 'application/pdf', onDrop: acc => { setFiles(f => ({ ...f, suratKeluar: acc[0] })); setPreviewNames(n => ({ ...n, suratKeluar: acc[0].name })); } });
-  const dropLPJ    = useDropzone({ accept: 'application/pdf', onDrop: acc => { setFiles(f => ({ ...f, lpjKegiatan: acc[0] })); setPreviewNames(n => ({ ...n, lpjKegiatan: acc[0].name })); } });
+  // Setup dropzone
+  const dropzone = useDropzone({ 
+    accept: 'application/pdf', 
+    onDrop: acceptedFiles => {
+      setFile(acceptedFiles[0]);
+      setPreviewName(acceptedFiles[0].name);
+    } 
+  });
 
   const handleSubmit = async e => {
     e.preventDefault();
     setError('');
+    
+    if (!file) {
+      setError('File PDF wajib diupload');
+      return;
+    }
+    
     const data = new FormData();
-    ['suratMasuk','suratKeluar','lpjKegiatan'].forEach(f => { if (files[f]) data.append(f, files[f]); });
+    data.append('file', file);
+    data.append('nomorSurat', nomorSurat);
+    data.append('jenisDokumen', jenisDokumen);
+    
     try {
       if (editingId) {
         await api.put(`/dokumen/${editingId}`, data, { headers: { 'Content-Type': 'multipart/form-data' } });
       } else {
         await api.post('/dokumen', data, { headers: { 'Content-Type': 'multipart/form-data' } });
       }
-      setShowForm(false); setEditingId(null); setFiles({}); setPreviewNames({});
+      setShowForm(false); 
+      setEditingId(null); 
+      setFile(null); 
+      setPreviewName(''); 
+      setNomorSurat('');
       fetchDocs();
-    } catch {
-      setError('Gagal menyimpan dokumen');
+    } catch (err) {
+      setError('Gagal menyimpan dokumen: ' + (err.response?.data?.msg || ''));
     }
   };
 
   const handleEdit = d => {
     setEditingId(d._id);
     setShowForm(true);
-    setPreviewNames({ suratMasuk: d.suratMasukName, suratKeluar: d.suratKeluarName, lpjKegiatan: d.lpjKegiatanName });
-    setFiles({});
+    setNomorSurat(d.nomorSurat || '');
+    setJenisDokumen(d.jenisDokumen || 'suratMasuk');
+    setPreviewName(d.fileName || '');
+    // Note: We don't set the file for editing, user needs to re-upload if they want to change it
   };
 
   const handleDelete = async id => {
     if (!window.confirm('Yakin hapus?')) return;
     try {
       await api.delete(`/dokumen/${id}`);
-      setDocs(prev => prev.filter(x => x._id !== id));
+      fetchDocs();
     } catch {
       setError('Gagal hapus');
     }
   };
 
-  const openModal = (id, field, name) => {
-    setModalDoc({ id, field, name });
+  const openModal = (id, name) => {
+    setModalDoc({ id, name });
     setIsModalOpen(true);
   };
+  
   const closeModal = () => setIsModalOpen(false);
+
+  // Filter dokumen berdasarkan jenisDokumen
+  const filteredDocs = results.filter(d => d.jenisDokumen === activeTab);
 
   if (!user || user.role !== 'admin') {
     return <div className="p-6 text-red-600 font-semibold">Akses ditolak. Hanya admin.</div>;
@@ -90,7 +116,17 @@ export default function CrudDokumen() {
   return (
     <div>
       <div className="flex justify-between mb-4">
-        <button onClick={() => { setShowForm(!showForm); setEditingId(null); setFiles({}); setPreviewNames({}); }} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
+        <button 
+          onClick={() => { 
+            setShowForm(!showForm); 
+            setEditingId(null); 
+            setFile(null); 
+            setPreviewName(''); 
+            setNomorSurat('');
+            setJenisDokumen(activeTab);
+          }} 
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+        >
           {showForm ? 'Tutup Form' : 'Tambah Dokumen'}
         </button>
       </div>
@@ -99,67 +135,122 @@ export default function CrudDokumen() {
 
       {showForm && (
         <form onSubmit={handleSubmit} className="mb-6 bg-white p-4 rounded-lg shadow-md">
-          {['suratMasuk','suratKeluar','lpjKegiatan'].map(field => {
-            const drop = field === 'suratMasuk' ? dropMasuk : field === 'suratKeluar' ? dropKeluar : dropLPJ;
-            return (
-              <div key={field} className="mb-4">
-                <label className="block mb-1 font-medium">{field}</label>
-                <div {...drop.getRootProps()} className="p-6 border-dashed border-2 rounded text-center cursor-pointer">
-                  <input {...drop.getInputProps()} />
-                  {previewNames[field]
-                    ? <p>{previewNames[field]}</p>
-                    : <p>Tarik & lepas PDF di sini, atau klik untuk pilih</p>
-                  }
-                </div>
-              </div>
-            );
-          })}
+          <div className="mb-4">
+            <label className="block mb-1 font-medium">Jenis Dokumen</label>
+            <select
+              value={jenisDokumen}
+              onChange={e => setJenisDokumen(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded"
+              disabled={editingId} // Can't change jenis dokumen when editing
+            >
+              <option value="suratMasuk">Surat Masuk</option>
+              <option value="suratKeluar">Surat Keluar</option>
+              <option value="lpjKegiatan">LPJ Kegiatan</option>
+            </select>
+          </div>
+          
+          <div className="mb-4">
+            <label className="block mb-1 font-medium">File PDF</label>
+            <div {...dropzone.getRootProps()} className="p-6 border-dashed border-2 rounded text-center cursor-pointer">
+              <input {...dropzone.getInputProps()} />
+              {previewName
+                ? <p>{previewName}</p>
+                : <p>Tarik & lepas PDF di sini, atau klik untuk pilih</p>
+              }
+            </div>
+            {editingId && !previewName && <p className="text-sm text-gray-500 mt-1">Biarkan kosong jika tidak ingin mengganti file</p>}
+          </div>
+          
+          <div className="mb-4">
+            <label className="block mb-1 font-medium">Nomor Surat</label>
+            <input
+              type="text"
+              value={nomorSurat}
+              onChange={(e) => setNomorSurat(e.target.value)}
+              className="w-full p-2 border border-gray-300 rounded"
+              placeholder="Masukkan nomor surat"
+            />
+          </div>
+          
           <button type="submit" className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">
             {editingId ? 'Update' : 'Tambah'}
           </button>
         </form>
       )}
 
-      <div className="overflow-x-auto">
-        <div className="mb-4">
-          <input
-            type="text"
-            placeholder="Cari dokumen..."
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            className="w-full p-2 border border-gray-300 rounded"
-          />
-        </div>
-        <table className="min-w-full bg-white rounded-lg shadow-md">
-          <thead>
-            <tr className="bg-blue-500 text-teal-100 uppercase text-sm">
-              <th className="py-3 px-6 text-left">Surat Masuk</th>
-              <th className="py-3 px-6 text-left">Surat Keluar</th>
-              <th className="py-3 px-6 text-left">LPJ Kegiatan</th>
-              <th className="py-3 px-6 text-center">Aksi</th>
-            </tr>
-          </thead>
-          <tbody className="text-gray-600 text-sm">
-            {results.map(d => (
-              <tr key={d._id} className="border-b hover:bg-gray-100">
-                {['suratMasuk','suratKeluar','lpjKegiatan'].map(f => (
-                  <td key={f} className="py-3 px-6">
-                    <button
-                      onClick={() => openModal(d._id, f, d[f + 'Name'])}
-                      className="text-blue-600 hover:underline"
-                    >
-                      {d[f + 'Name'] || '–'}
-                    </button>
-                  </td>
-                ))}
-                <td className="py-3 px-6 text-center">
-                  <button onClick={() => handleEdit(d)} className="mr-2 px-3 py-1 bg-teal-400 rounded hover:bg-teal-500">Edit</button>
-                  <button onClick={() => handleDelete(d._id)} className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600">Hapus</button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Tab Navigation */}
+      <div className="flex mb-6 border-b">
+        <button
+          className={`py-2 px-4 font-medium ${activeTab === 'suratMasuk' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+          onClick={() => setActiveTab('suratMasuk')}
+        >
+          Surat Masuk
+        </button>
+        <button
+          className={`py-2 px-4 font-medium ${activeTab === 'suratKeluar' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+          onClick={() => setActiveTab('suratKeluar')}
+        >
+          Surat Keluar
+        </button>
+        <button
+          className={`py-2 px-4 font-medium ${activeTab === 'lpjKegiatan' ? 'border-b-2 border-blue-500 text-blue-600' : 'text-gray-500'}`}
+          onClick={() => setActiveTab('lpjKegiatan')}
+        >
+          LPJ Kegiatan
+        </button>
+      </div>
+
+      <div className="mb-4">
+        <input
+          type="text"
+          placeholder="Cari dokumen..."
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          className="w-full p-2 border border-gray-300 rounded"
+        />
+      </div>
+      
+      <div className="space-y-4">
+        {filteredDocs.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            Tidak ada data dokumen {activeTab === 'suratMasuk' ? 'surat masuk' : activeTab === 'suratKeluar' ? 'surat keluar' : 'LPJ kegiatan'}.
+          </div>
+        ) : (
+          filteredDocs.map(d => (
+            <div key={d._id} className="bg-white border rounded-lg shadow-sm p-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="font-medium text-blue-600">
+                    {d.jenisDokumen === 'suratMasuk' ? 'Surat Masuk' : 
+                     d.jenisDokumen === 'suratKeluar' ? 'Surat Keluar' : 'LPJ Kegiatan'}
+                  </h3>
+                  <p className="text-sm text-gray-500">Nomor: {d.nomorSurat || '–'}</p>
+                </div>
+                <div>
+                  <button
+                    className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 mr-2"
+                    onClick={() => openModal(d._id, d.fileName || 'Dokumen')}
+                  >
+                    Lihat Dokumen
+                  </button>
+                  <button 
+                    onClick={() => handleEdit(d)} 
+                    className="mr-2 px-3 py-1 bg-teal-400 rounded hover:bg-teal-500"
+                  >
+                    Edit
+                  </button>
+                  <button 
+                    onClick={() => handleDelete(d._id)} 
+                    className="px-3 py-1 bg-red-500 text-white rounded hover:bg-red-600"
+                  >
+                    Hapus
+                  </button>
+                </div>
+              </div>
+              <p className="mt-2 text-sm text-gray-600">Nama File: {d.fileName || '–'}</p>
+            </div>
+          ))
+        )}
       </div>
 
       {/* Modal Preview PDF */}
@@ -172,14 +263,14 @@ export default function CrudDokumen() {
             </div>
             <div className="flex-grow overflow-auto">
               <iframe
-                src={`${API_URL}/dokumen/${modalDoc.id}/pdf/${modalDoc.field}`}
+                src={`${API_URL}/dokumen/${modalDoc.id}/pdf`}
                 title={modalDoc.name}
                 className="w-full h-full"
               />
             </div>
             <div className="mt-2 text-right">
               <a
-                href={`${API_URL}/dokumen/${modalDoc.id}/pdf/${modalDoc.field}`}
+                href={`${API_URL}/dokumen/${modalDoc.id}/pdf`}
                 download
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               >

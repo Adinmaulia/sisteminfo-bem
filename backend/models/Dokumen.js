@@ -4,20 +4,19 @@ const Schema = mongoose.Schema;
 
 // Schema untuk Koleksi Dokumen
 const DokumenSchema = new Schema({
-  suratMasuk: {
+  jenisDokumen: {
+    type: String,
+    enum: ['suratMasuk', 'suratKeluar', 'lpjKegiatan'],
+    required: true
+  },
+  file: {
     type: Schema.Types.ObjectId,
     ref: 'fs.files', // referensi ke koleksi GridFS files
     required: true
   },
-  suratKeluar: {
-    type: Schema.Types.ObjectId,
-    ref: 'fs.files',
-    required: true
-  },
-  lpjKegiatan: {
-    type: Schema.Types.ObjectId,
-    ref: 'fs.files',
-    required: true
+  nomorSurat: {
+    type: String,
+    required: false
   }
 }, {
   timestamps: true // menambahkan createdAt & updatedAt otomatis

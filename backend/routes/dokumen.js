@@ -19,14 +19,10 @@ router.get('/', async (req, res) => {
 
         const hasil = await Promise.all(
             docs.map(async d => {
-                const [inFile] = await bucket.find({ _id: d.suratMasuk }).toArray();
-                const [outFile] = await bucket.find({ _id: d.suratKeluar }).toArray();
-                const [lpjFile] = await bucket.find({ _id: d.lpjKegiatan }).toArray();
+                const files = await bucket.find({ _id: d.file }).toArray();
                 return {
                     ...d.toObject(),
-                    suratMasukName: inFile?.filename || 'Unknown.pdf',
-                    suratKeluarName: outFile?.filename || 'Unknown.pdf',
-                    lpjKegiatanName: lpjFile?.filename || 'Unknown.pdf'
+                    fileName: files[0]?.filename || 'Unknown.pdf'
                 };
             })
         );
@@ -37,14 +33,13 @@ router.get('/', async (req, res) => {
     }
 });
 
-// PUBLIC: stream PDF field
-router.get('/:id/pdf/:field', async (req, res) => {
+// PUBLIC: stream PDF
+router.get('/:id/pdf', async (req, res) => {
     try {
-        const { id, field } = req.params;
-        if (!['suratMasuk', 'suratKeluar', 'lpjKegiatan'].includes(field)) return res.status(400).end();
+        const { id } = req.params;
         const doc = await Dokumen.findById(id);
         if (!doc) return res.status(404).end();
-        const fileId = doc[field];
+        const fileId = doc.file;
         const bucket = getBucket();
         const files = await bucket.find({ _id: fileId }).toArray();
         if (!files.length) return res.status(404).end();
@@ -57,24 +52,18 @@ router.get('/:id/pdf/:field', async (req, res) => {
     }
 });
 
-// GET all documents
-// router.get('/', async (req, res) => {
-//     try {
-//         const list = await Dokumen.find().sort('-updatedAt');
-//         res.json(list);
-//     } catch {    
-//         res.status(500).json({ msg: 'Server error' });
-//     }
-// });
-
 // PROTECTED: admin only
 router.use(authMiddleware('admin'));
 
-// POST create new with 3 PDFs
+// POST create new document
 router.post('/', async (req, res) => {
     try {
-        const { suratMasuk, suratKeluar, lpjKegiatan } = req.files;
-        if (!suratMasuk || !suratKeluar || !lpjKegiatan) return res.status(400).json({ msg: 'Semua file PDF wajib diupload' });
+        const { jenisDokumen, nomorSurat } = req.body;
+        const file = req.files?.file;
+        
+        if (!file) return res.status(400).json({ msg: 'File PDF wajib diupload' });
+        if (!jenisDokumen) return res.status(400).json({ msg: 'Jenis dokumen wajib diisi' });
+        
         const bucket = getBucket();
         const upload = file => new Promise((resolve, reject) => {
             const stream = bucket.openUploadStream(file.name, { contentType: file.mimetype });
@@ -82,50 +71,66 @@ router.post('/', async (req, res) => {
             stream.on('finish', () => resolve(stream.id));
             stream.on('error', reject);
         });
-        const ids = await Promise.all([upload(suratMasuk), upload(suratKeluar), upload(lpjKegiatan)]);
-        const newDoc = new Dokumen({ suratMasuk: ids[0], suratKeluar: ids[1], lpjKegiatan: ids[2] });
+        
+        const fileId = await upload(file);
+        const newDoc = new Dokumen({ 
+            jenisDokumen,
+            file: fileId,
+            nomorSurat
+        });
+        
         await newDoc.save();
         res.status(201).json({ msg: 'Dokumen dibuat', doc: newDoc });
-    } catch {
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ msg: 'Server error' });
     }
 });
 
-// PUT update description? no fields. But allow reupload any
+// PUT update document
 router.put('/:id', async (req, res) => {
     try {
         const doc = await Dokumen.findById(req.params.id);
         if (!doc) return res.status(404).json({ msg: 'Dokumen tidak ditemukan' });
+        
         const bucket = getBucket();
-        // optional reupload each
-        for (const field of ['suratMasuk', 'suratKeluar', 'lpjKegiatan']) {
-            if (req.files && req.files[field]) {
-                // delete old file
-                bucket.delete(doc[field], () => { });
-                // upload new
-                const file = req.files[field];
-                const stream = bucket.openUploadStream(file.name, { contentType: file.mimetype });
-                stream.end(file.data);
-                await new Promise(r => stream.on('finish', r));
-                doc[field] = stream.id;
-            }
+        
+        // Update nomor surat jika ada di request body
+        if (req.body.nomorSurat !== undefined) doc.nomorSurat = req.body.nomorSurat;
+        
+        // Update jenis dokumen jika ada
+        if (req.body.jenisDokumen) doc.jenisDokumen = req.body.jenisDokumen;
+        
+        // Update file jika ada
+        if (req.files && req.files.file) {
+            // delete old file
+            bucket.delete(doc.file, () => { });
+            // upload new
+            const file = req.files.file;
+            const stream = bucket.openUploadStream(file.name, { contentType: file.mimetype });
+            stream.end(file.data);
+            await new Promise(r => stream.on('finish', r));
+            doc.file = stream.id;
         }
+        
         await doc.save();
         res.json({ msg: 'Dokumen diperbarui', doc });
-    } catch {
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ msg: 'Server error' });
     }
 });
 
-// DELETE document + files
+// DELETE document + file
 router.delete('/:id', async (req, res) => {
     try {
         const doc = await Dokumen.findByIdAndDelete(req.params.id);
         if (!doc) return res.status(404).json({ msg: 'Dokumen tidak ditemukan' });
         const bucket = getBucket();
-        [doc.suratMasuk, doc.suratKeluar, doc.lpjKegiatan].forEach(id => bucket.delete(id, () => { }));
+        bucket.delete(doc.file, () => { });
         res.json({ msg: 'Dokumen dihapus' });
-    } catch {
+    } catch (err) {
+        console.error(err);
         res.status(500).json({ msg: 'Server error' });
     }
 });
